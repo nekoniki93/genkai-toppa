@@ -251,6 +251,20 @@ body{
 .result-rank.rk-mid{ color:var(--hazard); text-shadow:0 0 30px rgba(212,255,61,0.4); }
 .result-rank.rk-low{ color:var(--orange); }
 .result-rank.rk-fail{ color:var(--danger); text-shadow:0 0 30px rgba(255,47,87,0.5); }
+.result-badge{
+  display:none; font-family:var(--f-display); font-weight:900; font-size:20px;
+  letter-spacing:0.12em; padding:5px 18px; border-radius:2px; margin:2px 0 6px;
+  animation:badgePop .35s ease;
+}
+.result-badge.show{ display:inline-block; }
+.result-badge.fc{ background:var(--hazard); color:#0a0a0a; box-shadow:0 0 22px rgba(212,255,61,0.5); }
+.result-badge.ap{
+  background:linear-gradient(90deg,#34e6ff,#8b6bff,#ff2f57,#d4ff3d,#34e6ff);
+  background-size:400% 100%; color:#0a0a0a; box-shadow:0 0 26px rgba(255,255,255,0.45);
+  animation:badgePop .35s ease, apShift 2.2s linear infinite;
+}
+@keyframes badgePop{ from{ transform:scale(0.7); opacity:0; } to{ transform:scale(1); opacity:1; } }
+@keyframes apShift{ from{ background-position:0% 50%; } to{ background-position:400% 50%; } }
 .result-song{ font-family:var(--f-body); font-weight:700; font-size:16px; color:var(--text-dim); margin-bottom:18px; }
 .result-stats{
   display:grid; grid-template-columns:repeat(2,1fr); gap:10px 20px; text-align:left;
@@ -377,6 +391,7 @@ body{
 <div id="screen-results" class="screen">
   <div class="results-wrap">
     <div class="result-status" id="resultStatus"></div>
+    <div class="result-badge" id="resultBadge"></div>
     <div class="result-rank" id="resultRank"></div>
     <div class="result-song" id="resultSong"></div>
     <div class="result-stats" id="resultStats"></div>
@@ -595,6 +610,16 @@ const Audio_ = {
     g.gain.exponentialRampToValueAtTime(0.001,t+0.22);
     o1.connect(filt); o2.connect(filt); filt.connect(g); g.connect(this.master);
     o1.start(t); o2.start(t); o1.stop(t+0.25); o2.stop(t+0.25);
+  },
+  playHitSound(t, tier){
+    const freq = {perfect:2500, great:2000, good:1500}[tier] || 1500;
+    const o=this.ctx.createOscillator(); o.type='sine'; o.frequency.value=freq;
+    const g=this.ctx.createGain();
+    g.gain.setValueAtTime(0.001,t);
+    g.gain.exponentialRampToValueAtTime(0.32,t+0.003);
+    g.gain.exponentialRampToValueAtTime(0.001,t+0.05);
+    o.connect(g); g.connect(this.master);
+    o.start(t); o.stop(t+0.06);
   }
 };
 
@@ -948,6 +973,7 @@ const Game = {
       this.score += base + Math.floor(this.combo*1.5);
       const delta = {perfect:-5, great:-2, good:4}[tier];
       this.dangerGauge = clamp(this.dangerGauge+delta,0,100);
+      if(Audio_.ctx) Audio_.playHitSound(Audio_.ctx.currentTime, tier);
     }
     this.counts[tier]++;
     this.spawnPopup(tier, ev.lane);
@@ -1096,6 +1122,20 @@ const Game = {
       (rank==='A'||rank==='B') ? 'rk-mid' : 'rk-low'
     );
     songEl.textContent = this.currentSong.stageLabel+' '+this.currentSong.name+(this.currentSong.bpm ? ' / BPM '+this.currentSong.bpm : '');
+
+    const badgeEl = document.getElementById('resultBadge');
+    const isFullCombo = cleared && this.counts.miss===0;
+    const isAllPerfect = isFullCombo && this.counts.great===0 && this.counts.good===0;
+    badgeEl.className = 'result-badge';
+    if(isAllPerfect){
+      badgeEl.textContent = 'ALL PERFECT';
+      badgeEl.classList.add('show','ap');
+    } else if(isFullCombo){
+      badgeEl.textContent = 'FULL COMBO';
+      badgeEl.classList.add('show','fc');
+    } else {
+      badgeEl.textContent = '';
+    }
 
     const c = this.counts;
     statsEl.innerHTML = `
