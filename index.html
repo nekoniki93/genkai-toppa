@@ -128,6 +128,19 @@ body{
   color:var(--text);
 }
 .modal-box p{ color:var(--text-dim); font-size:14px; margin:10px 0; line-height:1.6; }
+.settings-row{
+  display:flex; align-items:center; gap:10px; margin:16px 0; text-align:left;
+}
+.settings-row label{ font-family:var(--f-body); font-size:13px; color:var(--text); width:78px; flex:0 0 auto; }
+.settings-row input[type="range"]{
+  flex:1 1 auto; accent-color:var(--hazard); cursor:pointer; height:20px;
+}
+.settings-val{ font-family:var(--f-mono); font-size:13px; color:var(--cyan); width:32px; text-align:right; flex:0 0 auto; }
+.settings-toggle{
+  display:flex; align-items:center; gap:10px; margin:12px 0; text-align:left; cursor:pointer;
+  font-family:var(--f-body); font-size:13px; color:var(--text); touch-action:manipulation;
+}
+.settings-toggle input{ width:18px; height:18px; accent-color:var(--hazard); cursor:pointer; flex:0 0 auto; }
 .modal-box ul{ text-align:left; color:var(--text-dim); font-size:13px; line-height:1.9; margin:12px 0 20px 18px; }
 .modal-box .btn{ margin-top:6px; }
 .file-picker-btn{
@@ -210,6 +223,13 @@ body{
   touch-action:none;
 }
 #gameCanvas{ position:absolute; inset:0; width:100%; height:100%; display:block; }
+#dangerVignette{
+  position:absolute; inset:0; pointer-events:none; opacity:0; z-index:3;
+  background:radial-gradient(ellipse at center, transparent 55%, rgba(255,47,87,0.55) 100%);
+  transition:opacity .15s linear;
+}
+#dangerVignette.pulse{ animation:dangerPulse 0.5s ease-in-out infinite; }
+@keyframes dangerPulse{ 0%,100%{ opacity:var(--danger-op,0.5); } 50%{ opacity:calc(var(--danger-op,0.5) * 0.55); } }
 #laneLabels{
   position:absolute; left:0; right:0; bottom:0; display:flex; touch-action:none;
   height:calc(56px + env(safe-area-inset-bottom));
@@ -300,9 +320,36 @@ body{
     <div class="title-actions">
       <button class="btn btn-primary" id="btnStart">PLAY START</button>
       <button class="btn btn-ghost" id="btnHowTo">操作方法</button>
+      <button class="btn btn-ghost" id="btnSettings">設定</button>
     </div>
   </div>
   <div class="hazard-bar"></div>
+</div>
+
+<!-- SETTINGS MODAL -->
+<div id="modalSettings" class="modal-overlay">
+  <div class="modal-box">
+    <h2>設定</h2>
+    <div class="settings-row">
+      <label for="bgmVolumeSlider">BGM音量</label>
+      <input type="range" id="bgmVolumeSlider" min="0" max="100" value="85">
+      <span class="settings-val" id="bgmVolumeVal">85</span>
+    </div>
+    <div class="settings-row">
+      <label for="sfxVolumeSlider">SE音量</label>
+      <input type="range" id="sfxVolumeSlider" min="0" max="100" value="100">
+      <span class="settings-val" id="sfxVolumeVal">100</span>
+    </div>
+    <label class="settings-toggle">
+      <input type="checkbox" id="screenShakeToggle" checked>
+      <span>画面演出(揺れ・フラッシュ)</span>
+    </label>
+    <label class="settings-toggle">
+      <input type="checkbox" id="particlesToggle" checked>
+      <span>ヒットパーティクル</span>
+    </label>
+    <button class="btn btn-primary" id="btnCloseSettings">閉じる</button>
+  </div>
 </div>
 
 <!-- HOW TO PLAY MODAL -->
@@ -326,8 +373,8 @@ body{
 <!-- EX LOCAL AUDIO FILE MODAL -->
 <div id="modalExFile" class="modal-overlay">
   <div class="modal-box">
-    <h2>音源を選択</h2>
-    <p>このステージは著作権保護のため音声ファイルを同梱していません。お手元の音源ファイル(mp3等)を選んでください。選んだファイルはこの端末内でのみ再生され、どこにも送信されません。</p>
+    <h2 id="exModalTitle">音源を選択</h2>
+    <p id="exModalDesc">このステージは著作権保護のため音声ファイルを同梱していません。お手元の音源ファイル(mp3等)を選んでください。選んだファイルはこの端末内でのみ再生され、どこにも送信されません。</p>
     <label class="file-picker-btn" for="exFileInput">ファイルを選択</label>
     <input type="file" id="exFileInput" accept="audio/*">
     <p id="exFileStatus" class="file-status"></p>
@@ -366,6 +413,7 @@ body{
   </div>
   <div class="game-stage">
     <canvas id="gameCanvas"></canvas>
+    <div id="dangerVignette"></div>
     <div id="laneLabels">
       <div class="lane-key" data-lane="0">S</div>
       <div class="lane-key" data-lane="1">D</div>
@@ -429,6 +477,8 @@ const SCALE_SEMITONES = [0,1,4,5,7,8,10,12,13,16,17,19];
 const ROOT = 220;
 const SCALE_FREQS = SCALE_SEMITONES.map(s => ROOT * Math.pow(2, s/12));
 
+const COMBO_MILESTONES = [50,100,200,300,500,750,1000,1500,2000,3000,5000,7500,10000];
+
 const SONGS = [
   { id:'stage1', stageLabel:'STAGE 01', name:'警告', nameEn:'WARNING SIGNAL',
     bpm:172, bars:32, density:0.32, chordProb:0.03, travelTime:1.35, seed:1337,
@@ -465,12 +515,207 @@ const EX_SONG = {
   desc:'検証済み:人類未到達。機械にも無理でした。ここから先は自己責任で。', hazard:4, local:true,
   travelTime:0.62
 };
+const CUSTOM_SONG = {
+  id:'custom', stageLabel:'STAGE FREE', name:'CUSTOM STAGE', nameEn:'ANY SONG / AUTO-GENERATED CHART',
+  desc:'好きな音源を選ぶと、その場でオンセット解析して自動で譜面を組む。精度はEXほど詰めてない。',
+  hazard:3, local:true, customGenerate:true, travelTime:0.85
+};
 function buildExChart(song){
   const events = [];
   for(let i=0;i<EX_NOTES_FLAT.length;i+=2){
     events.push({ time:EX_NOTES_FLAT[i], lane:EX_NOTES_FLAT[i+1], kind:'ex', judged:false, judgment:null, id:i/2 });
   }
   return { events, length: EX_DURATION+1.5, song };
+}
+
+/* =========================================================
+   CUSTOM STAGE: client-side onset detection + auto chart
+   (no server, no librosa -- plain JS FFT + spectral flux)
+========================================================= */
+function fftInPlace(re, im){
+  const n = re.length;
+  for(let i=1, j=0; i<n; i++){
+    let bit = n>>1;
+    for(; j&bit; bit>>=1) j ^= bit;
+    j ^= bit;
+    if(i<j){
+      let t=re[i]; re[i]=re[j]; re[j]=t;
+      t=im[i]; im[i]=im[j]; im[j]=t;
+    }
+  }
+  for(let len=2; len<=n; len<<=1){
+    const ang = -2*Math.PI/len;
+    const wr0 = Math.cos(ang), wi0 = Math.sin(ang);
+    for(let i=0; i<n; i+=len){
+      let curWr=1, curWi=0;
+      const half=len>>1;
+      for(let j=0;j<half;j++){
+        const ur=re[i+j], ui=im[i+j];
+        const vr=re[i+j+half]*curWr - im[i+j+half]*curWi;
+        const vi=re[i+j+half]*curWi + im[i+j+half]*curWr;
+        re[i+j]=ur+vr; im[i+j]=ui+vi;
+        re[i+j+half]=ur-vr; im[i+j+half]=ui-vi;
+        const nwr=curWr*wr0-curWi*wi0, nwi=curWr*wi0+curWi*wr0;
+        curWr=nwr; curWi=nwi;
+      }
+    }
+  }
+}
+function hannWindow(n){
+  const w = new Float32Array(n);
+  for(let i=0;i<n;i++) w[i] = 0.5 - 0.5*Math.cos(2*Math.PI*i/(n-1));
+  return w;
+}
+
+async function resampleForAnalysis(decodedBuffer, targetSr){
+  const OfflineCtx = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+  const length = Math.ceil(decodedBuffer.duration*targetSr);
+  const offline = new OfflineCtx(1, length, targetSr);
+  const src = offline.createBufferSource();
+  src.buffer = decodedBuffer;
+  src.connect(offline.destination);
+  src.start(0);
+  const rendered = await offline.startRendering();
+  return rendered.getChannelData(0);
+}
+
+async function detectOnsets(samples, sr, onProgress){
+  const fftSize = 1024, hop = 512;
+  const numFrames = Math.max(0, Math.floor((samples.length-fftSize)/hop));
+  const window = hannWindow(fftSize);
+  const half = fftSize/2;
+  const prevMag = new Float32Array(half);
+  const flux = new Float32Array(numFrames);
+  const re = new Float32Array(fftSize), im = new Float32Array(fftSize);
+
+  const CHUNK = 300;
+  for(let f=0; f<numFrames; f++){
+    const off = f*hop;
+    for(let i=0;i<fftSize;i++){ re[i]=samples[off+i]*window[i]; im[i]=0; }
+    fftInPlace(re, im);
+    let sum=0;
+    for(let k=0;k<half;k++){
+      const mag = Math.sqrt(re[k]*re[k]+im[k]*im[k]);
+      const d = mag-prevMag[k];
+      if(d>0) sum+=d;
+      prevMag[k]=mag;
+    }
+    flux[f]=sum;
+    if(f%CHUNK===0){
+      if(onProgress) onProgress(f/numFrames);
+      await new Promise(r=>setTimeout(r,0));
+    }
+  }
+  if(onProgress) onProgress(1);
+
+  let maxF=0; for(let i=0;i<flux.length;i++) if(flux[i]>maxF) maxF=flux[i];
+  maxF = maxF||1;
+  const preAvg=8, postAvg=2, preMax=4, postMax=2, delta=0.12, minGapFrames=Math.round(0.05*sr/hop);
+  const onsets=[];
+  let lastF=-1e9;
+  for(let i=0;i<flux.length;i++){
+    const v = flux[i]/maxF;
+    let localMax=-Infinity;
+    for(let k=Math.max(0,i-preMax); k<Math.min(flux.length,i+postMax+1); k++){
+      const vv=flux[k]/maxF; if(vv>localMax) localMax=vv;
+    }
+    if(v!==localMax) continue;
+    let avg=0, cnt=0;
+    for(let k=Math.max(0,i-preAvg); k<Math.min(flux.length,i+postAvg+1); k++){ avg+=flux[k]/maxF; cnt++; }
+    avg/=Math.max(1,cnt);
+    if(v>avg+delta && (i-lastF)>minGapFrames){
+      onsets.push(i*hop/sr);
+      lastF=i;
+    }
+  }
+  return onsets;
+}
+
+function buildAdaptiveChartFromOnsets(onsetTimes, duration, seedNum){
+  const rng = mulberry32(seedNum);
+  if(onsetTimes.length===0) return { events:[], length:duration+1.5 };
+
+  const densBins=[]; for(let t=0;t<=duration;t+=1) densBins.push(t);
+  const density = densBins.map(t0=>{
+    let c=0;
+    for(const ot of onsetTimes){ if(ot>=t0-1 && ot<t0+1) c++; }
+    return c/2;
+  });
+  function densityAt(t){
+    if(t<=densBins[0]) return density[0];
+    if(t>=densBins[densBins.length-1]) return density[density.length-1];
+    let lo=0, hi=densBins.length-1;
+    while(hi-lo>1){ const mid=(lo+hi)>>1; if(densBins[mid]<=t) lo=mid; else hi=mid; }
+    const t0=densBins[lo], t1=densBins[hi], v0=density[lo], v1=density[hi];
+    const f=(t1>t0)?(t-t0)/(t1-t0):0;
+    return v0+(v1-v0)*f;
+  }
+  function baseMaxGap(d){
+    if(d<1.0) return null;
+    if(d<4.0) return 0.34;
+    if(d<8.0) return 0.16;
+    if(d<12.0) return 0.09;
+    return 0.055;
+  }
+  function rampMultiplier(t){
+    if(t<15) return 3.5 - 2.5*(t/15);
+    if(t>duration-18) return 1.0 + 2.2*Math.min(1,(t-(duration-18))/18);
+    return 1.0;
+  }
+
+  const filled=[];
+  let prev=0.0;
+  for(const t of onsetTimes){
+    const gap=t-prev, mid=(prev+t)/2;
+    const bmg=baseMaxGap(densityAt(mid));
+    const mg = (bmg===null) ? null : bmg*rampMultiplier(mid);
+    if(mg!==null && gap>mg){
+      const n=Math.floor(gap/mg);
+      for(let i=1;i<=n;i++) filled.push(prev+(gap*i/(n+1))+(rng()-0.5)*0.012);
+    }
+    filled.push(t);
+    prev=t;
+  }
+  const tailGap=duration-prev, tailMid=prev+tailGap/2;
+  const tbmg=baseMaxGap(densityAt(tailMid));
+  const tmg=(tbmg===null)?null:tbmg*rampMultiplier(tailMid);
+  if(tmg!==null && tailGap>tmg){
+    const n=Math.floor(tailGap/tmg);
+    for(let i=1;i<=n;i++) filled.push(prev+tailGap*i/(n+1));
+  }
+
+  const seen=new Set();
+  const times=[];
+  for(const t of filled){
+    const rt=Math.round(t*1000)/1000;
+    if(rt>=0 && rt<duration-0.3 && !seen.has(rt)){ seen.add(rt); times.push(rt); }
+  }
+  times.sort((a,b)=>a-b);
+
+  const events=[];
+  let prevLanes=new Set();
+  let id=0;
+  for(const t of times){
+    const intensity = Math.min(1, Math.max(0.05, densityAt(t)/(14.0*Math.max(1,rampMultiplier(t)*0.4+0.6))));
+    const r = rng();
+    let nExtra=0;
+    if(r < 0.06*intensity) nExtra=3;
+    else if(r < 0.06*intensity+0.16*intensity) nExtra=2;
+    else if(r < 0.06*intensity+0.16*intensity+0.23*intensity) nExtra=1;
+    const count = Math.min(1+nExtra, 4);
+    const chosen=new Set();
+    let tries=0;
+    while(chosen.size<count && tries<30){
+      const lane=Math.floor(rng()*6);
+      if(prevLanes.has(lane) && chosen.size===0 && rng()<0.7){ tries++; continue; }
+      chosen.add(lane); tries++;
+    }
+    for(const lane of chosen){
+      events.push({ time:t, lane, kind:'ex', judged:false, judgment:null, id:id++ });
+    }
+    prevLanes=chosen;
+  }
+  return { events, length: duration+1.5 };
 }
 
 function generateChart(song){
@@ -536,16 +781,44 @@ function generateChart(song){
 /* =========================================================
    AUDIO ENGINE
 ========================================================= */
+const Settings = {
+  defaults:{ bgmVolume:0.85, sfxVolume:1.0, screenShake:true, particles:true },
+  data:null,
+  load(){
+    let stored = {};
+    try{
+      const raw = localStorage.getItem('genkaitoppa_settings');
+      if(raw) stored = JSON.parse(raw);
+    }catch(e){}
+    this.data = Object.assign({}, this.defaults, stored);
+  },
+  get(key){
+    if(!this.data) this.load();
+    return this.data[key];
+  },
+  set(key, value){
+    if(!this.data) this.load();
+    this.data[key] = value;
+    try{ localStorage.setItem('genkaitoppa_settings', JSON.stringify(this.data)); }catch(e){}
+  }
+};
+
 const Audio_ = {
-  ctx:null, master:null, noiseBuffer:null,
+  ctx:null, master:null, musicBus:null, sfxBus:null, noiseBuffer:null,
   init(){
     this.ctx = new (window.AudioContext||window.webkitAudioContext)();
     this.master = this.ctx.createGain();
     this.master.gain.value = 0.85;
+    this.musicBus = this.ctx.createGain();
+    this.sfxBus = this.ctx.createGain();
+    this.musicBus.gain.value = Settings.get('bgmVolume');
+    this.sfxBus.gain.value = Settings.get('sfxVolume');
     const shaper = this.ctx.createWaveShaper();
     shaper.curve = this.makeDistortionCurve(18);
     const comp = this.ctx.createDynamicsCompressor();
     comp.threshold.value=-18; comp.knee.value=12; comp.ratio.value=6;
+    this.musicBus.connect(this.master);
+    this.sfxBus.connect(this.master);
     this.master.connect(shaper); shaper.connect(comp); comp.connect(this.ctx.destination);
     this.noiseBuffer = this.makeNoiseBuffer();
   },
@@ -572,7 +845,7 @@ const Audio_ = {
     g.gain.setValueAtTime(0.001,t);
     g.gain.exponentialRampToValueAtTime(1.0,t+0.005);
     g.gain.exponentialRampToValueAtTime(0.001,t+0.22);
-    o.connect(g); g.connect(this.master);
+    o.connect(g); g.connect(this.musicBus);
     o.start(t); o.stop(t+0.25);
   },
   playSnare(t){
@@ -580,13 +853,13 @@ const Audio_ = {
     const bp=this.ctx.createBiquadFilter(); bp.type='bandpass'; bp.frequency.value=1800; bp.Q.value=0.8;
     const ng=this.ctx.createGain();
     ng.gain.setValueAtTime(0.9,t); ng.gain.exponentialRampToValueAtTime(0.001,t+0.16);
-    src.connect(bp); bp.connect(ng); ng.connect(this.master);
+    src.connect(bp); bp.connect(ng); ng.connect(this.musicBus);
     src.start(t); src.stop(t+0.18);
 
     const o=this.ctx.createOscillator(); o.type='triangle'; o.frequency.value=190;
     const og=this.ctx.createGain();
     og.gain.setValueAtTime(0.5,t); og.gain.exponentialRampToValueAtTime(0.001,t+0.1);
-    o.connect(og); og.connect(this.master);
+    o.connect(og); og.connect(this.musicBus);
     o.start(t); o.stop(t+0.12);
   },
   playHihat(t){
@@ -594,7 +867,7 @@ const Audio_ = {
     const hp=this.ctx.createBiquadFilter(); hp.type='highpass'; hp.frequency.value=7200;
     const g=this.ctx.createGain();
     g.gain.setValueAtTime(0.35,t); g.gain.exponentialRampToValueAtTime(0.001,t+0.045);
-    src.connect(hp); hp.connect(g); g.connect(this.master);
+    src.connect(hp); hp.connect(g); g.connect(this.musicBus);
     src.start(t); src.stop(t+0.06);
   },
   playStab(t, freq){
@@ -608,7 +881,7 @@ const Audio_ = {
     g.gain.setValueAtTime(0.001,t);
     g.gain.exponentialRampToValueAtTime(0.45,t+0.008);
     g.gain.exponentialRampToValueAtTime(0.001,t+0.22);
-    o1.connect(filt); o2.connect(filt); filt.connect(g); g.connect(this.master);
+    o1.connect(filt); o2.connect(filt); filt.connect(g); g.connect(this.musicBus);
     o1.start(t); o2.start(t); o1.stop(t+0.25); o2.stop(t+0.25);
   },
   playHitSound(t, tier){
@@ -618,7 +891,7 @@ const Audio_ = {
     g.gain.setValueAtTime(0.001,t);
     g.gain.exponentialRampToValueAtTime(0.32,t+0.003);
     g.gain.exponentialRampToValueAtTime(0.001,t+0.05);
-    o.connect(g); g.connect(this.master);
+    o.connect(g); g.connect(this.sfxBus);
     o.start(t); o.stop(t+0.06);
   }
 };
@@ -655,7 +928,8 @@ const Game = {
   combo:0, maxCombo:0, score:0,
   counts:{perfect:0, great:0, good:0, miss:0},
   dangerGauge:0,
-  particles:[], popups:[],
+  particles:[], popups:[], rings:[], milestones:[],
+  shakeTime:0, shakeMag:0, missFlash:0,
   laneFlash:[0,0,0,0,0,0],
   laneKeys:['s','d','f','j','k','l'],
   failedFlag:false,
@@ -675,7 +949,19 @@ const Game = {
     window.addEventListener('keydown', e=>this.onKeyDown(e));
     this.bindUI();
     this.buildSongCards();
+    this.syncSettingsUI();
     this.resize();
+  },
+
+  syncSettingsUI(){
+    const bgm = Math.round(Settings.get('bgmVolume')*100);
+    const sfx = Math.round(Settings.get('sfxVolume')*100);
+    document.getElementById('bgmVolumeSlider').value = bgm;
+    document.getElementById('bgmVolumeVal').textContent = bgm;
+    document.getElementById('sfxVolumeSlider').value = sfx;
+    document.getElementById('sfxVolumeVal').textContent = sfx;
+    document.getElementById('screenShakeToggle').checked = Settings.get('screenShake');
+    document.getElementById('particlesToggle').checked = Settings.get('particles');
   },
 
   resize(){
@@ -700,6 +986,32 @@ const Game = {
     document.getElementById('btnStart').onclick = () => this.showScreen('select');
     document.getElementById('btnHowTo').onclick = () => document.getElementById('modalHowTo').classList.add('active');
     document.getElementById('btnCloseHowTo').onclick = () => document.getElementById('modalHowTo').classList.remove('active');
+    document.getElementById('btnSettings').onclick = () => {
+      this.syncSettingsUI();
+      document.getElementById('modalSettings').classList.add('active');
+    };
+    document.getElementById('btnCloseSettings').onclick = () => document.getElementById('modalSettings').classList.remove('active');
+
+    const bgmSlider = document.getElementById('bgmVolumeSlider');
+    const sfxSlider = document.getElementById('sfxVolumeSlider');
+    bgmSlider.addEventListener('input', (e)=>{
+      const v = parseInt(e.target.value,10)/100;
+      Settings.set('bgmVolume', v);
+      document.getElementById('bgmVolumeVal').textContent = e.target.value;
+      if(Audio_.musicBus) Audio_.musicBus.gain.value = v;
+    });
+    sfxSlider.addEventListener('input', (e)=>{
+      const v = parseInt(e.target.value,10)/100;
+      Settings.set('sfxVolume', v);
+      document.getElementById('sfxVolumeVal').textContent = e.target.value;
+      if(Audio_.sfxBus) Audio_.sfxBus.gain.value = v;
+    });
+    document.getElementById('screenShakeToggle').addEventListener('change', (e)=>{
+      Settings.set('screenShake', e.target.checked);
+    });
+    document.getElementById('particlesToggle').addEventListener('change', (e)=>{
+      Settings.set('particles', e.target.checked);
+    });
     document.getElementById('btnBackTitle').onclick = () => this.showScreen('title');
     document.getElementById('btnPause').onclick = () => this.togglePause();
     document.getElementById('btnResume').onclick = () => this.resumeGame();
@@ -775,10 +1087,25 @@ const Game = {
     `;
     exCard.onclick = () => this.selectSong(EX_SONG);
     container.appendChild(exCard);
+
+    const customCard = document.createElement('div');
+    customCard.className = 'song-card song-card-custom';
+    customCard.innerHTML = `
+      <div class="song-card-top">
+        <span class="song-stage">${CUSTOM_SONG.stageLabel}</span>
+        <span class="song-hazard">${'☢'.repeat(CUSTOM_SONG.hazard)}</span>
+      </div>
+      <div class="song-name">${CUSTOM_SONG.name}</div>
+      <div class="song-name-en">${CUSTOM_SONG.nameEn}</div>
+      <div class="song-desc">${CUSTOM_SONG.desc}</div>
+      <span class="song-local-badge">音源は自分のファイルを読み込み</span>
+    `;
+    customCard.onclick = () => this.selectSong(CUSTOM_SONG);
+    container.appendChild(customCard);
   },
 
   selectSong(song){
-    if(song.local) this.startExStage(song);
+    if(song.local) this.startLocalStage(song);
     else this.startStage(song);
   },
 
@@ -812,7 +1139,7 @@ const Game = {
     this.chart = generateChart(song);
     this.combo=0; this.maxCombo=0; this.score=0;
     this.counts={perfect:0,great:0,good:0,miss:0};
-    this.dangerGauge=0; this.particles=[]; this.popups=[];
+    this.dangerGauge=0; this.particles=[]; this.popups=[]; this.rings=[]; this.milestones=[]; this.shakeTime=0; this.missFlash=0;
     this.scheduledIdx=0; this.failedFlag=false;
 
     this.showScreen('game');
@@ -828,27 +1155,44 @@ const Game = {
 
   retryStage(){
     document.getElementById('pauseOverlay').classList.remove('active');
-    if(this.currentSong && this.currentSong.local) this.startExStage(this.currentSong);
+    if(this.currentSong && this.currentSong.local) this.startLocalStage(this.currentSong, true);
     else this.startStage(this.currentSong);
   },
 
-  startExStage(song){
+  startLocalStage(song, isRetry){
     if(!Audio_.ctx) Audio_.init();
     if(Audio_.ctx.state==='suspended') Audio_.ctx.resume();
     this.currentSong = song;
-    if(this.exAudioBuffer){
+    this.pendingLocalMode = song.customGenerate ? 'custom' : 'ex';
+
+    if(song.customGenerate){
+      if(isRetry && this.customAudioBuffer && this.customChart){
+        this.beginCustomPlay();
+        return;
+      }
+    } else if(this.exAudioBuffer){
       this.beginExPlay();
-    } else {
-      document.getElementById('exFileStatus').textContent = '';
-      document.getElementById('modalExFile').classList.add('active');
+      return;
     }
+
+    const titleEl = document.getElementById('exModalTitle');
+    const descEl = document.getElementById('exModalDesc');
+    if(song.customGenerate){
+      titleEl.textContent = '音源を選択(自動解析)';
+      descEl.textContent = '好きな音源ファイルを選ぶと、この端末内でオンセット解析して自動的に譜面を組みます。曲によっては解析に数秒かかります。ファイルはどこにも送信されません。';
+    } else {
+      titleEl.textContent = '音源を選択';
+      descEl.textContent = 'このステージは著作権保護のため音声ファイルを同梱していません。お手元の音源ファイル(mp3等)を選んでください。選んだファイルはこの端末内でのみ再生され、どこにも送信されません。';
+    }
+    document.getElementById('exFileStatus').textContent = '';
+    document.getElementById('modalExFile').classList.add('active');
   },
 
   beginExPlay(){
     this.chart = buildExChart(this.currentSong);
     this.combo=0; this.maxCombo=0; this.score=0;
     this.counts={perfect:0,great:0,good:0,miss:0};
-    this.dangerGauge=0; this.particles=[]; this.popups=[];
+    this.dangerGauge=0; this.particles=[]; this.popups=[]; this.rings=[]; this.milestones=[]; this.shakeTime=0; this.missFlash=0;
     this.scheduledIdx=0; this.failedFlag=false; this.exSourceNode=null;
 
     this.showScreen('game');
@@ -859,7 +1203,29 @@ const Game = {
       this.state='playing';
       const src = Audio_.ctx.createBufferSource();
       src.buffer = this.exAudioBuffer;
-      src.connect(Audio_.master);
+      src.connect(Audio_.musicBus);
+      src.start(this.songStartTime);
+      this.exSourceNode = src;
+      this.startRenderLoop();
+    });
+  },
+
+  beginCustomPlay(){
+    this.chart = this.customChart;
+    this.combo=0; this.maxCombo=0; this.score=0;
+    this.counts={perfect:0,great:0,good:0,miss:0};
+    this.dangerGauge=0; this.particles=[]; this.popups=[]; this.rings=[]; this.milestones=[]; this.shakeTime=0; this.missFlash=0;
+    this.scheduledIdx=0; this.failedFlag=false; this.exSourceNode=null;
+
+    this.showScreen('game');
+    document.getElementById('pauseOverlay').classList.remove('active');
+    this.updateHUDDom();
+    this.runCountdown(()=>{
+      this.songStartTime = Audio_.ctx.currentTime + 0.15;
+      this.state='playing';
+      const src = Audio_.ctx.createBufferSource();
+      src.buffer = this.customAudioBuffer;
+      src.connect(Audio_.musicBus);
       src.start(this.songStartTime);
       this.exSourceNode = src;
       this.startRenderLoop();
@@ -947,7 +1313,15 @@ const Game = {
       return p.life>0;
     });
     this.popups = this.popups.filter(p=>{ p.life-=1; p.y-=0.5; return p.life>0; });
+    this.rings = this.rings.filter(r=>{
+      r.life-=1;
+      r.r += (r.maxR-r.r)*0.35;
+      return r.life>0;
+    });
+    this.milestones = this.milestones.filter(m=>{ m.life-=1; return m.life>0; });
     for(let i=0;i<6;i++) if(this.laneFlash[i]>0) this.laneFlash[i]=Math.max(0,this.laneFlash[i]-0.06);
+    if(this.shakeTime>0) this.shakeTime = Math.max(0, this.shakeTime - 1/60);
+    if(this.missFlash>0) this.missFlash = Math.max(0, this.missFlash - 0.08);
 
     this.updateHUDDom();
 
@@ -966,6 +1340,10 @@ const Game = {
     if(tier==='miss'){
       this.combo=0;
       this.dangerGauge = clamp(this.dangerGauge+12,0,100);
+      if(Settings.get('screenShake')){
+        this.shakeTime = 0.16; this.shakeMag = 7;
+        this.missFlash = 1;
+      }
     } else {
       this.combo++;
       this.maxCombo = Math.max(this.maxCombo,this.combo);
@@ -974,10 +1352,14 @@ const Game = {
       const delta = {perfect:-5, great:-2, good:4}[tier];
       this.dangerGauge = clamp(this.dangerGauge+delta,0,100);
       if(Audio_.ctx) Audio_.playHitSound(Audio_.ctx.currentTime, tier);
+      if(COMBO_MILESTONES.includes(this.combo)){
+        this.spawnComboMilestone(this.combo);
+      }
     }
     this.counts[tier]++;
     this.spawnPopup(tier, ev.lane);
     this.spawnParticles(tier, ev.lane);
+    this.spawnHitRing(tier, ev.lane);
   },
 
   judge(laneIdx){
@@ -1052,6 +1434,7 @@ const Game = {
     });
   },
   spawnParticles(tier, lane){
+    if(!Settings.get('particles')) return;
     const colors = {perfect:'#34e6ff', great:'#d4ff3d', good:'#ff9f3d', miss:'#ff2f57'};
     const n = tier==='miss'?6:10;
     const cx=this.laneX(lane)+this.laneW()/2, cy=this.judgmentY();
@@ -1064,6 +1447,14 @@ const Game = {
       });
     }
   },
+  spawnHitRing(tier, lane){
+    const colors = {perfect:'#34e6ff', great:'#d4ff3d', good:'#ff9f3d', miss:'#ff2f57'};
+    const cx=this.laneX(lane)+this.laneW()/2, cy=this.judgmentY();
+    this.rings.push({ x:cx, y:cy, r:6, maxR: tier==='perfect'?46:34, life:16, maxLife:16, color:colors[tier] });
+  },
+  spawnComboMilestone(combo){
+    this.milestones.push({ text:combo+' COMBO', life:50, maxLife:50 });
+  },
 
   updateHUDDom(){
     document.getElementById('comboText').textContent = (this.autoPlay ? '[AUTO] ' : '') + (this.combo>1 ? this.combo+' COMBO' : '');
@@ -1072,6 +1463,15 @@ const Game = {
     const acc = total>0 ? (this.counts.perfect*1+this.counts.great*0.7+this.counts.good*0.4)/total*100 : 100;
     document.getElementById('accText').textContent = acc.toFixed(2)+'%';
     document.getElementById('dangerBar').style.width = this.dangerGauge+'%';
+    if(Settings.get('screenShake')){
+      const vign = document.getElementById('dangerVignette');
+      const op = clamp((this.dangerGauge-55)/45, 0, 1) * 0.7;
+      vign.style.setProperty('--danger-op', op);
+      vign.style.opacity = op;
+      vign.classList.toggle('pulse', this.dangerGauge>=88);
+    } else {
+      document.getElementById('dangerVignette').style.opacity = 0;
+    }
     const bpmEl = document.getElementById('bpmText');
     if(this.currentSong && this.currentSong.local){
       const t = clamp(this.currentSongTime||0, 0, EX_DURATION);
@@ -1156,6 +1556,12 @@ const Game = {
     ctx.scale(this.DPR, this.DPR);
     ctx.clearRect(0,0,this.W,this.H);
 
+    ctx.save();
+    if(this.shakeTime>0){
+      const mag = this.shakeMag * (this.shakeTime/0.16);
+      ctx.translate((Math.random()-0.5)*2*mag, (Math.random()-0.5)*2*mag);
+    }
+
     // lane separators + hand-group tint
     for(let i=0;i<6;i++){
       const x=this.laneX(i), w=this.laneW();
@@ -1206,6 +1612,17 @@ const Game = {
     }
     ctx.globalAlpha=1;
 
+    // hit rings
+    for(const r of this.rings){
+      ctx.globalAlpha = clamp(r.life/r.maxLife,0,1)*0.8;
+      ctx.strokeStyle = r.color;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(r.x, r.y, r.r, 0, Math.PI*2);
+      ctx.stroke();
+    }
+    ctx.globalAlpha=1;
+
     // popups
     ctx.font='700 16px "JetBrains Mono", monospace';
     ctx.textAlign='center';
@@ -1215,6 +1632,32 @@ const Game = {
       ctx.fillText(p.text, p.x, p.y);
     }
     ctx.globalAlpha=1;
+
+    // combo milestones (big center text)
+    for(const m of this.milestones){
+      const p = 1 - m.life/m.maxLife;
+      const scale = p<0.15 ? (p/0.15) : 1;
+      ctx.save();
+      ctx.globalAlpha = clamp(m.life/m.maxLife*1.4,0,1);
+      ctx.translate(this.W/2, this.H*0.32);
+      ctx.scale(scale, scale);
+      ctx.font = '900 34px "Big Shoulders Stencil", sans-serif';
+      ctx.fillStyle = '#d4ff3d';
+      ctx.shadowColor = 'rgba(212,255,61,0.6)';
+      ctx.shadowBlur = 14;
+      ctx.textAlign='center';
+      ctx.fillText(m.text, 0, 0);
+      ctx.restore();
+    }
+    ctx.globalAlpha=1;
+
+    ctx.restore();
+
+    // miss flash overlay (full-screen, unaffected by shake)
+    if(this.missFlash>0){
+      ctx.fillStyle = `rgba(255,47,87,${this.missFlash*0.22})`;
+      ctx.fillRect(0,0,this.W,this.H);
+    }
 
     ctx.restore();
   },
