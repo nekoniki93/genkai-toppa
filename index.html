@@ -222,7 +222,36 @@ body{
   flex:1 1 auto; position:relative; max-width:640px; width:100%; margin:0 auto; overflow:hidden;
   touch-action:none;
 }
-#gameCanvas{ position:absolute; inset:0; width:100%; height:100%; display:block; }
+#gameBgStatus{
+  position:absolute; inset:0; z-index:0; pointer-events:none;
+  opacity:0; transition:opacity .35s ease;
+}
+#gameBgStatus.fc-active{
+  opacity:1;
+  background:radial-gradient(ellipse at 50% 28%, rgba(212,255,61,0.22) 0%, transparent 68%);
+  animation:fcBgPulse 2.4s ease-in-out infinite;
+}
+#gameBgStatus.ap-active{
+  opacity:1;
+  background:conic-gradient(from 0deg at 50% 30%, rgba(52,230,255,0.22), rgba(139,107,255,0.22), rgba(255,47,87,0.18), rgba(212,255,61,0.22), rgba(52,230,255,0.22));
+  animation:apBgSpin 5s linear infinite;
+}
+@keyframes fcBgPulse{ 0%,100%{ filter:brightness(1); } 50%{ filter:brightness(1.5); } }
+@keyframes apBgSpin{ from{ filter:hue-rotate(0deg) brightness(1.2); } to{ filter:hue-rotate(360deg) brightness(1.2); } }
+#gameCanvas{ position:absolute; inset:0; width:100%; height:100%; display:block; z-index:1; }
+.live-status-badge{
+  position:absolute; top:8px; left:50%; transform:translateX(-50%); z-index:4;
+  font-family:var(--f-mono); font-weight:700; font-size:11px; letter-spacing:0.15em;
+  padding:4px 14px; border-radius:10px; pointer-events:none;
+  opacity:0; transition:opacity .2s ease;
+}
+.live-status-badge.show{ opacity:1; }
+.live-status-badge.fc{ background:rgba(212,255,61,0.14); border:1px solid var(--hazard); color:var(--hazard); }
+.live-status-badge.ap{
+  background:linear-gradient(90deg,#34e6ff,#8b6bff,#ff2f57,#d4ff3d,#34e6ff);
+  background-size:400% 100%; color:#0a0a0a; font-weight:900; border:none;
+  animation:apShift 2.2s linear infinite;
+}
 #dangerVignette{
   position:absolute; inset:0; pointer-events:none; opacity:0; z-index:3;
   background:radial-gradient(ellipse at center, transparent 55%, rgba(255,47,87,0.55) 100%);
@@ -441,7 +470,9 @@ body{
     </div>
   </div>
   <div class="game-stage">
+    <div id="gameBgStatus"></div>
     <canvas id="gameCanvas"></canvas>
+    <div id="liveStatusBadge" class="live-status-badge"></div>
     <div id="dangerVignette"></div>
     <div id="laneLabels">
       <div class="lane-key" data-lane="0">S</div>
@@ -1514,6 +1545,24 @@ const Game = {
     const acc = total>0 ? (this.counts.perfect*1+this.counts.great*0.7+this.counts.good*0.4)/total*100 : 100;
     document.getElementById('accText').textContent = acc.toFixed(2)+'%';
     document.getElementById('dangerBar').style.width = this.dangerGauge+'%';
+
+    const liveBadge = document.getElementById('liveStatusBadge');
+    const bgStatus = document.getElementById('gameBgStatus');
+    bgStatus.classList.remove('fc-active','ap-active');
+    liveBadge.className = 'live-status-badge';
+    const liveFC = this.counts.miss===0;
+    const liveAP = liveFC && this.counts.great===0 && this.counts.good===0;
+    if(total>0 && liveAP){
+      liveBadge.textContent = 'ALL PERFECT';
+      liveBadge.classList.add('show','ap');
+      bgStatus.classList.add('ap-active');
+    } else if(total>0 && liveFC){
+      liveBadge.textContent = 'FULL COMBO';
+      liveBadge.classList.add('show','fc');
+      bgStatus.classList.add('fc-active');
+    } else {
+      liveBadge.textContent = '';
+    }
     if(Settings.get('screenShake')){
       const vign = document.getElementById('dangerVignette');
       const op = clamp((this.dangerGauge-55)/45, 0, 1) * 0.7;
